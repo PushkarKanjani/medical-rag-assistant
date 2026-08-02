@@ -1,0 +1,6 @@
+backend/
+frontend/node_modules/
+.venv/
+.git/
+*.log
+.next/

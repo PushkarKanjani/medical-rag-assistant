@@ -1,0 +1,10 @@
+{
+  "status": "success",
+  "collection": "bm25_pages",
+  "retrieval_mode": "bm25_json",
+  "pages_path": "data\\processed\\pages.json",
+  "processed_files": [
+    "data\\The_Gale_Encyclopedia_of_Medicine_3rd_Edition_500.pdf"
+  ],
+  "total_pages": 499
+}
