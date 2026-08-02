@@ -1,6 +1,34 @@
 from __future__ import annotations
 
 import os
+import traceback
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Multi-location .env search (handles root execution and backend execution)
+current_file = Path(__file__).resolve()
+candidates = [
+    Path.cwd() / "backend" / ".env",
+    Path.cwd() / ".env",
+    current_file.parent.parent.parent.parent / "backend" / ".env",  # backend/.env from src/orchestration/nodes/
+    current_file.parent.parent.parent / ".env",                      # root .env
+]
+
+env_path = None
+for candidate in candidates:
+    if candidate.exists():
+        env_path = candidate
+        break
+
+if env_path:
+    load_dotenv(dotenv_path=env_path, override=True)
+    print(f"SUCCESS: Loaded .env from {env_path}")
+else:
+    load_dotenv(override=True)
+    print("WARNING: Could not locate .env file in standard locations.")
+
+print(f"DEBUG: GROQ_API_KEY present in environment: {bool(os.environ.get('GROQ_API_KEY'))}")
+
 from src.orchestration.state import GraphState
 from src.settings import get_settings
 
@@ -12,28 +40,46 @@ except ImportError:
 
 def generate_clinical_answer(query: str, intent: str, evidence: list[dict]) -> str:
     settings = get_settings()
-    api_key = settings.groq_api_key or os.environ.get("GROQ_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY") or getattr(settings, "groq_api_key", None)
+
+    # Filter and build context from retrieved PDF pages
+    context_parts = []
+    for i, ev in enumerate(evidence[:5], 1):
+        score = ev.get("score", 0)
+        text = ev.get("full_text") or ev.get("text", "")
+        page = ev.get("page_number", "?")
+        
+        if not text:
+            continue
+            
+        # Strict relevance threshold to filter out unrelated noise
+        if score and score < 7.5:
+            continue
+
+        cleaned_text = text.replace("/C15", "").strip()[:600]
+        context_parts.append(
+            f"**Reference Source {i} (Page {page}, score: {score:.2f}):**\n{cleaned_text}"
+        )
+        if len(context_parts) >= 3:
+            break
+
+    if not context_parts and evidence:
+        top_ev = evidence[0]
+        text = top_ev.get("full_text") or top_ev.get("text", "")
+        page = top_ev.get("page_number", "?")
+        score = top_ev.get("score", 0)
+        if text:
+            cleaned_text = text.replace("/C15", "").strip()[:600]
+            context_parts.append(f"**Reference Source 1 (Page {page}, score: {score:.2f}):**\n{cleaned_text}")
 
     if api_key and Groq is not None:
         try:
             client = Groq(api_key=api_key)
-
-            # Build context from retrieved PDF pages (use full_text when available)
-            context_parts = []
-            for i, ev in enumerate(evidence[:5], 1):
-                text = ev.get("full_text") or ev.get("text", "")
-                page = ev.get("page_number", "?")
-                score = ev.get("score", 0)
-                if text and not text.startswith("[Page"):
-                    context_parts.append(
-                        f"[Source {i} – Gale Encyclopedia, Page {page}, relevance={score:.2f}]\n{text[:1200]}"
-                    )
-
             context_block = "\n\n---\n\n".join(context_parts) if context_parts else "No local context retrieved."
-
+            
             prompt = f"""You are MedAssist, an expert medical AI assistant for clinicians.
-Answer the following clinical question based STRICTLY on the provided medical reference excerpts below.
-If the excerpts don't contain enough information, say so explicitly and provide general guidance.
+Answer the following clinical question based STRICTLY on the provided medical reference excerpts below. 
+Synthesize the information cleanly into a professional clinical summary. Ignore any retrieved excerpts that are clearly unrelated to the query. Do not include raw tags or system notes.
 
 === RETRIEVED MEDICAL REFERENCE EXCERPTS ===
 {context_block}
@@ -41,84 +87,37 @@ If the excerpts don't contain enough information, say so explicitly and provide 
 === CLINICAL QUESTION ===
 {query}
 
-Intent: {intent}
-
 === INSTRUCTIONS ===
-1. Answer directly from the retrieved excerpts above. Quote or paraphrase specific content.
-2. Include key symptoms, differentials, dosing, or guidelines clearly.
-3. Cite the page numbers from the excerpts you use.
-4. Keep the tone authoritative and evidence-based.
-5. If the excerpts are insufficient, state what is missing and provide general clinical guidance.
+1. Provide a direct, professional, synthesized clinical response using only the relevant excerpts.
+2. Cite the source page numbers clearly inline (e.g., [Page X]).
+3. Keep the tone clinical, authoritative, and structured.
 """
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=1200,
+                max_tokens=1000,
             )
             if completion.choices and completion.choices[0].message.content:
                 return completion.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Groq API call error: {e}")
-
-    query_lower = query.lower()
-
-    if "fever" in query_lower or "rash" in query_lower:
-        return (
-            "### Clinical Assessment: Acute Fever with Rash\n\n"
-            "**Primary Differential Diagnoses:**\n"
-            "1. **Infectious Etiologies:** Viral exanthem (e.g., Measles, Rubella, Dengue, Chikungunya, Parvovirus B19), Meningococcemia, Typhoid fever, or Rickettsial infection.\n"
-            "2. **Non-Infectious / Drug Reactions:** Drug Reaction with Eosinophilia and Systemic Symptoms (DRESS), Stevens-Johnson Syndrome (SJS), or Kawasaki Disease.\n\n"
-            "**Recommended Diagnostic Evaluation:**\n"
-            "- Complete Blood Count (CBC) with differential, ESR/CRP.\n"
-            "- Blood cultures if bacteremia or sepsis is suspected.\n"
-            "- Viral serologies / PCR panel based on exposure history.\n\n"
-            "**Immediate Management & Safety:**\n"
-            "- Assess for red flags: petechial/purpuric rash, hemodynamic instability, neck stiffness, or altered mental state.\n"
-            "- Ensure adequate hydration and antipyretic therapy (Paracetamol 500-1000 mg Q6H PRN, avoiding NSAIDs if Dengue is suspected)."
-        )
-    elif "amoxicillin" in query_lower or "dose" in query_lower or "dosage" in query_lower:
-        return (
-            "### Dosing & Administration Guidelines: Pediatric Amoxicillin\n\n"
-            "**Standard Dosing:**\n"
-            "- **Mild to Moderate Infections (e.g., Otitis Media, Sinusitis):** 40-45 mg/kg/day divided BID or TID.\n"
-            "- **High-Dose Protocol (e.g., Suspected Resistant S. pneumoniae):** 80-90 mg/kg/day divided BID (max 4000 mg/day).\n\n"
-            "**Key Considerations & Safety:**\n"
-            "- Check for documented Penicillin or Beta-lactam allergies.\n"
-            "- Adjust dosage in patients with renal impairment (CrCl < 30 mL/min).\n"
-            "- Instruct patients/caregivers to complete the full prescribed course (typically 7-10 days)."
-        )
-    elif "warfarin" in query_lower or "interaction" in query_lower or "drug" in query_lower:
-        return (
-            "### Drug Interaction & Safety Check: Warfarin Therapy\n\n"
-            "**High-Risk Interactions:**\n"
-            "- **NSAIDs & Aspirin:** Increased risk of major gastrointestinal bleeding.\n"
-            "- **Antibiotics (e.g., Metronidazole, Trimethoprim-Sulfamethoxazole, Fluconazole):** Inhibit CYP2C9, significantly increasing INR and bleeding risk.\n"
-            "- **Amiodarone & Statins:** May potentiate anticoagulant effect.\n\n"
-            "**Monitoring & Clinical Action:**\n"
-            "- Re-check INR within 3-5 days of introducing or discontinuing co-medications.\n"
-            "- Target INR range is typically 2.0 - 3.0 for most indications (2.5 - 3.5 for mechanical prosthetic heart valves)."
-        )
-    elif "hypertension" in query_lower or "bp" in query_lower or "pressure" in query_lower:
-        return (
-            "### Clinical Management Protocol: Essential Hypertension\n\n"
-            "**First-Line Antihypertensive Classes:**\n"
-            "1. **ACE Inhibitors / ARBs:** (e.g., Enalapril 5-20 mg daily, Telmisartan 40-80 mg daily) – Preferred in patients with Diabetes or CKD.\n"
-            "2. **Calcium Channel Blockers (CCBs):** (e.g., Amlodipine 5-10 mg daily).\n"
-            "3. **Thiazide/Thiazide-like Diuretics:** (e.g., Chlorthalidone 12.5-25 mg daily or Indapamide).\n\n"
-            "**Blood Pressure Targets:**\n"
-            "- General Population (< 65 yrs): < 130/80 mmHg if tolerated.\n"
-            "- Elderly (≥ 65 yrs): < 140/90 mmHg.\n\n"
-            "**Lifestyle Modifications:** Sodium restriction (< 2g/day), DASH diet, regular aerobic exercise (150 mins/week), and smoking cessation."
-        )
+            print("================ GROQ API ERROR ================")
+            traceback.print_exc()
+            print("================================================")
     else:
-        return (
-            f"### Clinical Guidance: '{query}'\n\n"
-            f"Based on evidence-based medical reference protocols for **{query}**:\n\n"
-            f"1. **Clinical Assessment:** Perform a thorough history and focused clinical examination targeting onset, duration, and severity of symptoms.\n"
-            f"2. **Evidence-Based Recommendations:** Initiate standard diagnostic workup and risk stratification based on local institutional guidelines.\n"
-            f"3. **Safety Precautions:** Monitor for any alarm symptoms, verify patient drug allergies, and adjust dosages according to renal/hepatic function as appropriate."
-        )
+        print("WARNING: Groq API key is missing. Please ensure GROQ_API_KEY=gsk_... is inside backend/.env")
+
+    if context_parts:
+        fallback_response = f"### Clinical Summary: {query}\n\n"
+        fallback_response += "*(Note: Displaying verified literature excerpts)*\n\n"
+        for part in context_parts:
+            fallback_response += f"{part}\n\n"
+        return fallback_response
+
+    return (
+        f"### Clinical Guidance: '{query}'\n\n"
+        f"No relevant local reference excerpts were found for '{query}'."
+    )
 
 
 async def synthesise_node(state: GraphState) -> dict:

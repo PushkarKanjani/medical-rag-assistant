@@ -14,6 +14,20 @@ from src.orchestration.main_graph import compiled
 from src.retrieval.qdrant_client import get_async_qdrant
 from src.settings import get_settings
 
+app = FastAPI(
+    title="Medical RAG Assistant API",
+    description="Backend API for Clinician Console RAG pipeline",
+    version="1.0.0"
+)
+
+# Configure CORS middleware to resolve fetch blocks
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins for local preview/development
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows GET, POST, OPTIONS, etc.
+    allow_headers=["*"],
+)
 
 def configure_logging() -> None:
     structlog.configure(
