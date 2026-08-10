@@ -1,13 +1,10 @@
-# Python bytecode and caches
+# Python bytecode and tool caches
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Python tooling caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.pyre/
 .hypothesis/
 
 # Virtual environments
@@ -15,30 +12,29 @@ __pycache__/
 venv/
 ENV/
 
-# Test and coverage outputs
-.coverage
-.coverage.*
-htmlcov/
+# Environment variables & secrets (CRITICAL: Do NOT commit)
+.env
+.env.*
+.env.local
 
-# Notebooks and editor caches
+# Notebooks & IDE configurations
 *.ipynb
 .ipynb_checkpoints/
 .vscode/
 .continue/
 .idea/
 
-# Environment variables & secrets
-.env
-.env.*
-.env.local
-
-# Logs
-*.log
-
-# Local data & indexes (large binaries / vector stores)
+# Large local vectors, models & index storage
 data/indexes/
+data/indexes/chroma/
+data/indexes/bm25_index.pkl
 data/extracted/
 data/pdf/*.pdf
+*.pkl
 qdrant_db/
 qdrant_db_text/
-*.pkl
+
+# Logs & temporary files
+*.log
+.DS_Store
+Thumbs.db
