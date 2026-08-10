@@ -36,3 +36,11 @@ qdrant_db/
 frontend/.next/
 frontend/out/
 frontend/node_modules/
+
+# Local Indexes and Env
+data/indexes/
+data/extracted/
+.venv/
+__pycache__/
+*.pyc
+.env
