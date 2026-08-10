@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medical RAG Assistant | Clinical Intelligence</title>
+  
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lenis Smooth Scroll CDN -->
+  <script src="https://unpkg.com/lenis@1.1.9/dist/lenis.min.js"></script>
+
+  <!-- Tailwind Configuration for Medical-Grade Theme -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#F0F9FF',
+              100: '#E0F2FE',
+              500: '#0284C7',
+              600: '#0369A1',
+              700: '#075985',
+            },
+            teal: {
+              50: '#F0FDFA',
+              500: '#0D9488',
+              600: '#0F766E',
+            },
+            slate: {
+              850: '#151E2E',
+            }
+          },
+          boxShadow: {
+            'glass': '0 8px 32px 0 rgba(148, 163, 184, 0.15)',
+            'glass-hover': '0 12px 40px 0 rgba(2, 132, 199, 0.18)',
+            'card-subtle': '0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04)',
+            'glow-teal': '0 0 20px -3px rgba(13, 148, 136, 0.3)',
+          },
+          keyframes: {
+            'fade-in-up': {
+              '0%': { opacity: '0', transform: 'translateY(10px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            'pulse-slow': {
+              '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+              '50%': { opacity: '0.4', transform: 'scale(0.95)' },
+            },
+            'breathe': {
+              '0%, 100%': { transform: 'scale(1)', opacity: '0.7' },
+              '50%': { transform: 'scale(1.15)', opacity: '1' },
+            }
+          },
+          animation: {
+            'fade-in-up': 'fade-in-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            'pulse-slow': 'pulse-slow 2.5s ease-in-out infinite',
+            'breathe': 'breathe 1.8s ease-in-out infinite',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom background gradient mesh */
+    body {
+      background-color: #F8FAFC;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(224, 242, 254, 0.7) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(204, 251, 241, 0.6) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(241, 245, 249, 0.9) 0px, transparent 60%);
+      background-attachment: fixed;
+    }
+
+    /* Glassmorphic utilities */
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.85);
+    }
+
+    .glass-header {
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    /* Citation Badges */
+    .citation-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      margin: 2px 3px;
+      background: rgba(224, 242, 254, 0.85);
+      border: 1px solid rgba(186, 230, 253, 1);
+      border-radius: 9999px;
+      color: #0369A1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      transition: all 0.2s ease;
+      cursor: default;
+      vertical-align: middle;
+      box-shadow: 0 1px 2px rgba(2, 132, 199, 0.08);
+    }
+
+    .citation-badge:hover {
+      background: rgba(186, 230, 253, 1);
+      border-color: #0284C7;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(2, 132, 199, 0.15);
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(203, 213, 225, 0.8);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.9);
+    }
+  </style>
+</head>
+
+<body class="h-full flex flex-col font-sans text-slate-800 antialiased selection:bg-brand-100 selection:text-brand-700">
+
+  <!-- Header -->
+  <header class="glass-header sticky top-0 z-30 px-6 py-3.5 transition-all">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      
+      <!-- Brand Logo & Title -->
+      <div class="flex items-center gap-3.5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-teal-500 to-sky-400 p-[1.5px] shadow-sm flex items-center justify-center">
+          <div class="w-full h-full bg-white rounded-[10px] flex items-center justify-center text-xl shadow-inner">
+            🩺
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base font-bold tracking-tight text-slate-900">Medical RAG Assistant</h1>
+            <span class="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 border border-brand-100">Clinical AI</span>
+          </div>
+          <p class="text-xs text-slate-500 font-medium">Grounded in the Gale Encyclopedia of Medicine</p>
+        </div>
+      </div>
+
+      <!-- Live Status & Actions -->
+      <div class="flex items-center gap-3">
+        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50/80 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shadow-card-subtle">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm animate-pulse-slow"></span>
+          <span>Dense + BM25 Hybrid Active</span>
+        </div>
+
+        <button id="clearChatBtn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100/80 hover:bg-slate-200/80 border border-slate-200 transition-all duration-150 active:scale-95">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>New Chat</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-4xl w-full mx-auto flex flex-col p-4 sm:p-6 overflow-hidden">
+    
+    <!-- Chat Glassmorphic Frame -->
+    <div class="flex-1 glass-panel rounded-2xl sm:rounded-3xl shadow-glass flex flex-col overflow-hidden border border-slate-200/70 relative">
+      
+      <!-- Messages Viewport -->
+      <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+        
+        <!-- Welcome Hero State -->
+        <div id="welcomeHero" class="my-auto py-8 px-4 text-center max-w-lg mx-auto">
+          <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-100 to-teal-100 text-brand-600 text-3xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-white">
+            🏥
+          </div>
+          <h2 class="text-xl font-bold text-slate-900 tracking-tight mb-2">Evidence-Grounded Medical Intelligence</h2>
+          <p class="text-sm text-slate-600 leading-relaxed mb-6">
+            Ask complex clinical questions. Every answer is retrieved from 4,000+ pages of peer-reviewed encyclopedia records with verifiable citations.
+          </p>
+
+          <!-- Prompt Starters -->
+          <div class="space-y-2.5 text-left">
+            <button onclick="useQuickPrompt('What are the symptoms of hypertension?')" class="w-full group p-3.5 rounded-xl bg-white/90 hover:bg-white border border-slate-200/80 hover:border-brand-500/50 shadow-card-subtle hover:shadow-glass transition-all duration-200 flex items-center justify-between text-left text-sm text-slate-700 hover:text-brand-600">
+              <span class="font-medium">What are the symptoms of hypertension?</span>
+              <span class="text-slate-400 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all text-xs font-semibold">Ask →</span>
+            </button>
+
+            <button onclick="useQuickPrompt('What causes asthma and what are its remedies?')" class="w-full group p-3.5 rounded-xl bg-white/90 hover:bg-white border border-slate-200/80 hover:border-brand-500/50 shadow-card-subtle hover:shadow-glass transition-all duration-200 flex items-center justify-between text-left text-sm text-slate-700 hover:text-brand-600">
+              <span class="font-medium">What causes asthma and what are its remedies?</span>
+              <span class="text-slate-400 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all text-xs font-semibold">Ask →</span>
+            </button>
+
+            <button onclick="useQuickPrompt('What is hyperaldosteronism and how is it treated?')" class="w-full group p-3.5 rounded-xl bg-white/90 hover:bg-white border border-slate-200/80 hover:border-brand-500/50 shadow-card-subtle hover:shadow-glass transition-all duration-200 flex items-center justify-between text-left text-sm text-slate-700 hover:text-brand-600">
+              <span class="font-medium">What is hyperaldosteronism and how is it treated?</span>
+              <span class="text-slate-400 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all text-xs font-semibold">Ask →</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Input Footer -->
+      <div class="p-3 sm:p-4 bg-white/60 border-t border-slate-200/60 backdrop-blur-md">
+        <form id="chatForm" class="relative flex items-center">
+          <textarea
+            id="queryInput"
+            rows="1"
+            placeholder="Ask any disease, symptom, or treatment question..."
+            class="w-full pl-4 pr-14 py-3.5 bg-white/95 rounded-xl border border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 outline-none text-sm text-slate-800 placeholder:text-slate-400 resize-none shadow-sm transition-all duration-150 max-h-32"
+          ></textarea>
+
+          <button
+            id="sendBtn"
+            type="submit"
+            disabled
+            class="absolute right-2.5 p-2 rounded-lg bg-brand-500 text-white disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed hover:bg-brand-600 active:scale-95 transition-all duration-150 shadow-sm"
+          >
+            <svg class="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+            </svg>
+          </button>
+        </form>
+
+        <p class="text-[11px] text-center text-slate-400 mt-2 font-medium">
+          Evidence-grounded RAG. For informational reference only — consult a physician for medical advice.
+        </p>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // 1. Initialize Lenis Smooth Scroll
+    const lenis = new Lenis({
+      duration: 0.8,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      smoothWheel: true,
+    });
+
+    function raf(time) {
+      lenis.raf(time);
+      requestAnimationFrame(raf);
+    }
+    requestAnimationFrame(raf);
+
+    // 2. Chat State & Elements
+    let chatHistory = [];
+    let isSubmitting = false;
+
+    const messagesContainer = document.getElementById('messagesContainer');
+    const welcomeHero = document.getElementById('welcomeHero');
+    const queryInput = document.getElementById('queryInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatForm = document.getElementById('chatForm');
+    const clearChatBtn = document.getElementById('clearChatBtn');
+
+    // Auto-resize textarea
+    queryInput.addEventListener('input', function () {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 128) + 'px';
+      sendBtn.disabled = !this.value.trim() || isSubmitting;
+    });
+
+    queryInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendBtn.disabled && !isSubmitting) {
+          handleChatSubmit();
+        }
+      }
+    });
+
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!sendBtn.disabled && !isSubmitting) {
+        handleChatSubmit();
+      }
+    });
+
+    clearChatBtn.addEventListener('click', () => {
+      chatHistory = [];
+      messagesContainer.innerHTML = '';
+      messagesContainer.appendChild(welcomeHero);
+      welcomeHero.style.display = 'block';
+      queryInput.value = '';
+      queryInput.style.height = 'auto';
+      sendBtn.disabled = true;
+      queryInput.focus();
+    });
+
+    function useQuickPrompt(text) {
+      queryInput.value = text;
+      queryInput.dispatchEvent(new Event('input'));
+      handleChatSubmit();
+    }
+
+    // 3. Format Assistant Output & Smart Citations
+    function formatAssistantMarkdown(rawText) {
+      if (!rawText) return '';
+
+      // Escape base HTML
+      let html = rawText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      // Replace citations like [The_Gale_...-p1933-c1899] with badge pills
+      html = html.replace(/\[([a-zA-Z0-9_\-\.]+?-p\d+?-c\d+?)\]/g, (match, citation) => {
+        return `<span class="citation-badge" title="Source record in Gale Encyclopedia">📄 ${citation}</span>`;
+      });
+
+      // Bold formatting
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-slate-900">$1</strong>');
+
+      // Italic formatting
+      html = html.replace(/\*(.*?)\*/g, '<em class="italic text-slate-700">$1</em>');
+
+      // Split lines into structured paragraphs & lists
+      const lines = html.split('\n');
+      let inList = false;
+      let formatted = [];
+
+      for (let line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          if (!inList) {
+            formatted.push('<ul class="list-disc list-inside space-y-1.5 my-2 text-slate-700">');
+            inList = true;
+          }
+          formatted.push(`<li>${trimmed.substring(2)}</li>`);
+        } else if (/^\d+\.\s/.test(trimmed)) {
+          if (!inList) {
+            formatted.push('<ol class="list-decimal list-inside space-y-1.5 my-2 text-slate-700">');
+            inList = true;
+          }
+          formatted.push(`<li>${trimmed.replace(/^\d+\.\s*/, '')}</li>`);
+        } else {
+          if (inList) {
+            formatted.push('</ul>');
+            inList = false;
+          }
+          if (trimmed) {
+            formatted.push(`<p class="leading-relaxed mb-2.5 text-slate-700">${line}</p>`);
+          }
+        }
+      }
+      if (inList) formatted.push('</ul>');
+
+      return formatted.join('');
+    }
+
+    // 4. Message DOM Rendering
+    function appendUserMessage(text) {
+      if (welcomeHero && welcomeHero.style.display !== 'none') {
+        welcomeHero.style.display = 'none';
+      }
+
+      const row = document.createElement('div');
+      row.className = 'flex justify-end animate-fade-in-up';
+      row.innerHTML = `
+        <div class="max-w-[85%] sm:max-w-[75%] px-4 py-3 bg-brand-500 text-white rounded-2xl rounded-tr-sm shadow-md text-sm leading-relaxed">
+          ${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+        </div>
+      `;
+      messagesContainer.appendChild(row);
+      scrollToBottom();
+    }
+
+    function appendAssistantMessage(htmlContent) {
+      const row = document.createElement('div');
+      row.className = 'flex gap-3 animate-fade-in-up';
+      row.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-600 to-teal-500 text-white text-sm flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5">
+          🩺
+        </div>
+        <div class="max-w-[90%] sm:max-w-[82%] px-4 py-3.5 bg-white border border-slate-200/80 text-slate-800 rounded-2xl rounded-tl-sm shadow-sm text-sm">
+          ${htmlContent}
+        </div>
+      `;
+      messagesContainer.appendChild(row);
+      scrollToBottom();
+    }
+
+    function showThinkingIndicator() {
+      const row = document.createElement('div');
+      row.id = 'thinkingRow';
+      row.className = 'flex gap-3 animate-fade-in-up';
+      row.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-600 to-teal-500 text-white text-sm flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5 animate-breathe">
+          🩺
+        </div>
+        <div class="px-4 py-3 bg-white border border-slate-200/80 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
+          <div class="flex gap-1">
+            <span class="w-2 h-2 rounded-full bg-brand-500 animate-bounce" style="animation-delay: 0ms"></span>
+            <span class="w-2 h-2 rounded-full bg-teal-500 animate-bounce" style="animation-delay: 150ms"></span>
+            <span class="w-2 h-2 rounded-full bg-brand-500 animate-bounce" style="animation-delay: 300ms"></span>
+          </div>
+          <span class="text-xs text-slate-500 font-medium ml-1">Searching encyclopedia & verifying evidence...</span>
+        </div>
+      `;
+      messagesContainer.appendChild(row);
+      scrollToBottom();
+    }
+
+    function removeThinkingIndicator() {
+      const el = document.getElementById('thinkingRow');
+      if (el) el.remove();
+    }
+
+    function scrollToBottom() {
+      messagesContainer.scrollTo({
+        top: messagesContainer.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+
+    // 5. Submit Query Execution
+    async function handleChatSubmit() {
+      const question = queryInput.value.trim();
+      if (!question || isSubmitting) return;
+
+      isSubmitting = true;
+      sendBtn.disabled = true;
+      queryInput.value = '';
+      queryInput.style.height = 'auto';
+
+      appendUserMessage(question);
+      showThinkingIndicator();
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: question,
+            history: chatHistory.slice(-8),
+          })
+        });
+
+        removeThinkingIndicator();
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const errMsg = errData.detail || `Server status code ${response.status}`;
+          appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ Error: ${errMsg}</p>`);
+          return;
+        }
+
+        const data = await response.json();
+        const answer = data.answer || "No response received from the RAG engine.";
+
+        appendAssistantMessage(formatAssistantMarkdown(answer));
+
+        // Update history
+        chatHistory.push({ role: 'user', content: question });
+        chatHistory.push({ role: 'assistant', content: answer });
+        chatHistory = chatHistory.slice(-8);
+
+      } catch (err) {
+        removeThinkingIndicator();
+        appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ Connection failure: Could not reach API backend. Please ensure the server is active at <code>http://localhost:8000</code>.</p>`);
+      } finally {
+        isSubmitting = false;
+        queryInput.focus();
+      }
+    }
+  </script>
+</body>
+</html>
