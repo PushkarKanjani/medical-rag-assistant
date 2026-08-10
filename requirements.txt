@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+gunicorn
 pymupdf
 chromadb
 sentence-transformers

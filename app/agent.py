@@ -6,6 +6,7 @@ Reciprocal Rank Fusion (RRF), Symptom-Disease Penalty, Evidence Grounding,
 and LangGraph Orchestration using Groq (llama-3.1-8b-instant).
 
 Ported from Cell 3 & Cell 4 of Medical_RAG_Core_Engine.ipynb.
+Includes lazy initialization for fast server startup on ephemeral/cloud hosts.
 
 Run via:
     python -m app.agent
@@ -25,7 +26,6 @@ from dotenv import load_dotenv
 from groq import Groq
 from langgraph.graph import END, StateGraph
 import torch
-from sentence_transformers import SentenceTransformer
 
 # ---- Load Environment & Paths ----
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,40 +40,49 @@ EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-# ---- Initialize Groq Client ----
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY or GROQ_API_KEY == "your_key_here":
-    print("⚠️ WARNING: GROQ_API_KEY is not set in .env. Please update .env with your actual Groq API key.")
-
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY and GROQ_API_KEY != "your_key_here" else None
-
-
-# ---- Retrieval Globals / Lazy Loader ----
+# ---- Lazy Client & Resource Cache ----
+_groq_client: Groq | None = None
 _chroma_collection = None
 _embed_model = None
 _bm25 = None
 _chunk_records = None
+_rag_app = None
+
+
+def get_groq_client() -> Groq | None:
+    """Returns or lazily creates the Groq API client from environment variables."""
+    global _groq_client
+    if _groq_client is not None:
+        return _groq_client
+
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key or api_key == "your_key_here":
+        return None
+
+    _groq_client = Groq(api_key=api_key)
+    return _groq_client
 
 
 def get_resources():
-    """Initializes and returns ChromaDB collection, embedding model, BM25 index, and chunk records."""
+    """Lazily initializes and returns ChromaDB collection, embedding model, BM25 index, and chunk records."""
     global _chroma_collection, _embed_model, _bm25, _chunk_records
 
     if _chroma_collection is None:
         if not CHROMA_PATH.exists():
             raise FileNotFoundError(
-                f"Chroma index not found at {CHROMA_PATH}. Run 'python -m app.ingest' first."
+                f"Chroma index not found at {CHROMA_PATH}. Run 'python -m app.ingest' or trigger /api/ingest first."
             )
         chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
         _chroma_collection = chroma_client.get_collection(COLLECTION_NAME)
 
     if _embed_model is None:
+        from sentence_transformers import SentenceTransformer
         _embed_model = SentenceTransformer(EMBED_MODEL_NAME, device=DEVICE)
 
     if _bm25 is None or _chunk_records is None:
         if not BM25_PATH.exists():
             raise FileNotFoundError(
-                f"BM25 index not found at {BM25_PATH}. Run 'python -m app.ingest' first."
+                f"BM25 index not found at {BM25_PATH}. Run 'python -m app.ingest' or trigger /api/ingest first."
             )
         with open(BM25_PATH, "rb") as f:
             _bm25_data = pickle.load(f)
@@ -116,9 +125,10 @@ def rewrite_node(state: AgentState) -> AgentState:
         "Rewritten standalone query:"
     )
 
-    if groq_client:
+    client = get_groq_client()
+    if client:
         try:
-            resp = groq_client.chat.completions.create(
+            resp = client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -289,14 +299,15 @@ def generate_node(state: AgentState) -> AgentState:
     full_prompt_for_size = SYSTEM_PROMPT + user_prompt
     print(f"[generate_node] Prompt size: {len(full_prompt_for_size):,} chars (~{len(full_prompt_for_size) // 4:,} tokens est.)")
 
-    if not groq_client:
+    client = get_groq_client()
+    if not client:
         state["answer"] = (
-            "Error: GROQ_API_KEY is not configured. Please set your GROQ_API_KEY in the .env file to generate answers."
+            "Error: GROQ_API_KEY is not configured on this server. Please set your GROQ_API_KEY in environment variables to generate answers."
         )
         return state
 
     try:
-        resp = groq_client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -330,7 +341,16 @@ def create_rag_graph():
     return workflow.compile()
 
 
-rag_app = create_rag_graph()
+def get_rag_app():
+    """Lazy loader for the compiled LangGraph workflow."""
+    global _rag_app
+    if _rag_app is None:
+        _rag_app = create_rag_graph()
+    return _rag_app
+
+
+# Backward compatibility alias
+rag_app = get_rag_app()
 
 
 # ---- Interactive Chat Loop ----
@@ -342,6 +362,7 @@ def run_chat():
     print("Type your medical question below. Type 'exit' or Ctrl+C to quit.")
     print("=" * 65)
 
+    app_instance = get_rag_app()
     while True:
         try:
             user_input = input("\nYou: ").strip()
@@ -359,7 +380,7 @@ def run_chat():
                 "answer": "",
             }
 
-            result = rag_app.invoke(initial_state)
+            result = app_instance.invoke(initial_state)
             answer = result.get("answer", "No answer generated.")
 
             if not answer:
