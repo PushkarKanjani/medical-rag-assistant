@@ -5,7 +5,7 @@ Ingestion pipeline for Medical RAG Assistant.
 Extracted and ported from Cell 2 of Medical_RAG_Core_Engine.ipynb.
 
 Workflow:
-1. Extract & clean text from PDF using PyMuPDF (fitz).
+1. Extract & clean text from PDF using PyMuPDF.
 2. Clean noisy lines (headers, index markers, URLs, low alpha ratio).
 3. Chunk into ~1500 char blocks with 200 char overlap, tracking page numbers.
 4. Generate embeddings with sentence-transformers/all-MiniLM-L6-v2.
@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 import torch
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
@@ -159,7 +159,7 @@ def run_ingestion(pdf_path: Path | str | None = None) -> None:
 
     # 1. Extract + clean per page
     print("\n📖 Extracting and cleaning text from PDF...")
-    doc = fitz.open(str(target_pdf))
+    doc = pymupdf.open(str(target_pdf))
     full_text = ""
     offsets: list[tuple[int, int]] = []  # (start_char_offset_in_full_text, page_num)
 

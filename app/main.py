@@ -2,14 +2,14 @@
 app/main.py
 ───────────
 FastAPI backend for Medical RAG Assistant.
-Optimized for ephemeral cloud deployment (Render.com).
+Configured for ephemeral cloud deployment (Render.com) with background
+index initialization on startup, non-blocking HTTP endpoints, and live status.
 
-Features:
-- Instant port binding (< 1s) to pass Render port detection.
-- Automated startup background auto-ingestion if vector indexes are missing.
-- Blocks /api/chat until indexes finish building, then answers user query seamlessly.
-- Instant 200 OK /health probe endpoint.
-- Manual fallback POST /api/ingest endpoint.
+Endpoints:
+    - GET  /health       : Health check & real-time index status
+    - POST /api/chat     : Non-blocking chat inference through LangGraph RAG agent
+    - POST /api/ingest   : Manual trigger for PDF encyclopedia ingestion
+    - GET  /             : Static Web UI (static/index.html)
 
 Run via:
     uvicorn app.main:app --host 0.0.0.0 --port $PORT
@@ -19,22 +19,20 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.agent import BASE_DIR, CHROMA_PATH, BM25_PATH, get_rag_app, reset_resource_cache
 
-# Ingestion synchronization events
+# Track background ingestion status
 _is_ingesting: bool = False
 _ingest_error: str | None = None
-_indexes_ready_event = threading.Event()
 
 
 def are_indexes_ready() -> bool:
@@ -43,36 +41,25 @@ def are_indexes_ready() -> bool:
 
 
 def run_background_auto_ingest():
-    """Executes the ingestion pipeline in a background thread and signals completion."""
+    """Executes the ingestion pipeline in a background thread and resets caches when finished."""
     global _is_ingesting, _ingest_error
     if _is_ingesting:
         return
 
     _is_ingesting = True
     _ingest_error = None
-    _indexes_ready_event.clear()
 
     try:
         print("\n" + "=" * 65)
-        print("🔄 [Auto-Ingest] Checking source PDF in data/pdf/...")
-        pdf_dir = BASE_DIR / "data" / "pdf"
-        has_pdfs = pdf_dir.exists() and any(pdf_dir.glob("*.pdf"))
-
-        if not has_pdfs:
-            _ingest_error = "No PDF files found in data/pdf/"
-            print(f"⚠️ [Auto-Ingest] {_ingest_error}")
-            return
-
         print("🔄 [Auto-Ingest] Starting background PDF ingestion from data/pdf/...")
         print("=" * 65 + "\n")
 
         from app.ingest import run_ingestion
         run_ingestion()
 
-        # Invalidate resource cache and signal readiness
+        # Invalidate resource cache so fresh indexes are loaded on the next request
         reset_resource_cache()
-        _indexes_ready_event.set()
-        print("\n✅ [Auto-Ingest] Ingestion complete! Indexes are now live and ready.\n")
+        print("\n✅ [Auto-Ingest] Ingestion finished! ChromaDB & BM25 indexes are ready.\n")
 
     except Exception as exc:
         _ingest_error = str(exc)
@@ -84,18 +71,21 @@ def run_background_auto_ingest():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    FastAPI lifespan startup:
-    - Binds port immediately for Render.
-    - Automatically checks indexes and triggers background ingestion if missing.
+    FastAPI lifespan:
+    - Binds port immediately (< 1s) so Render port checks pass instantly.
+    - If indexes are missing (e.g. fresh Render deploy / container restart),
+      spawns background thread auto-ingestion concurrently without holding port binding.
     """
-    if are_indexes_ready():
-        _indexes_ready_event.set()
-        print("✅ [Startup] Local indexes found and ready.")
+    if not are_indexes_ready():
+        pdf_dir = BASE_DIR / "data" / "pdf"
+        has_pdfs = pdf_dir.exists() and any(pdf_dir.glob("*.pdf"))
+        if has_pdfs:
+            print("🚀 [Startup] Spawning background auto-ingestion thread...")
+            threading.Thread(target=run_background_auto_ingest, daemon=True).start()
+        else:
+            print("⚠️ [Startup] No PDF files found in data/pdf/. Auto-ingestion waiting for upload.")
     else:
-        _indexes_ready_event.clear()
-        print("🚀 [Startup] Missing indexes detected on ephemeral storage.")
-        print("🚀 [Startup] Spawning background auto-ingestion thread...")
-        threading.Thread(target=run_background_auto_ingest, daemon=True).start()
+        print("✅ [Startup] Local indexes found and ready.")
 
     yield
 
@@ -137,9 +127,10 @@ async def health_check():
     Instant health check endpoint.
     Returns 200 OK immediately for Render port-checking while reporting live index status.
     """
+    ready = are_indexes_ready()
     return {
         "status": "ok",
-        "indexes_ready": _indexes_ready_event.is_set() or are_indexes_ready(),
+        "indexes_ready": ready,
         "is_ingesting": _is_ingesting,
         "ingest_error": _ingest_error,
     }
@@ -149,36 +140,42 @@ async def health_check():
 async def chat_endpoint(req: ChatRequest):
     """
     Main chat endpoint:
-    If background ingestion is in progress, waits for it to complete before answering.
+    Non-blocking endpoint that provides immediate status feedback during startup ingestion
+    and answers medical questions through the LangGraph RAG agent once ready.
     """
     question = req.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    # If indexes are not ready yet:
-    if not _indexes_ready_event.is_set() and not are_indexes_ready():
-        if _is_ingesting:
-            print("⏳ [Chat] Query received while indexing. Waiting for index completion...")
-            # Wait up to 180 seconds for the background ingestion to finish
-            completed = _indexes_ready_event.wait(timeout=180)
-            if not completed:
-                return ChatResponse(
-                    answer=(
-                        "⏳ **Indexing In Progress**: The medical encyclopedia is still compiling on this server. "
-                        "Please try your question again in 1-2 minutes."
-                    )
-                )
-        else:
-            # Not ingesting and not ready, start it now
+    # 1. If currently indexing in the background, return non-blocking informative status
+    if _is_ingesting:
+        return ChatResponse(
+            answer=(
+                "⏳ **Indexing in Progress**: The Gale Encyclopedia of Medicine is currently being processed in the background on this server (~2 minutes on startup). "
+                "The live status badge at the top right of the page will turn green once indexing completes. Please try your question again in just a moment!"
+            )
+        )
+
+    # 2. If indexes are not ready and not currently ingesting, trigger background auto-ingestion
+    if not are_indexes_ready():
+        pdf_dir = BASE_DIR / "data" / "pdf"
+        if pdf_dir.exists() and any(pdf_dir.glob("*.pdf")):
             threading.Thread(target=run_background_auto_ingest, daemon=True).start()
             return ChatResponse(
                 answer=(
-                    "🔄 **Indexing Initiated**: Vector indexes were missing on this ephemeral container. "
-                    "Auto-ingestion has started in the background. Please wait 2 minutes and submit your query again."
+                    "🔄 **Indexing Initiated**: Medical indexes were missing on this ephemeral container. "
+                    "Auto-ingestion has started in the background. Please wait 1-2 minutes and submit your query again."
                 )
             )
 
-    # Process question through LangGraph RAG Agent
+        return ChatResponse(
+            answer=(
+                "⚠️ **Indexes Missing**: No vector indexes were found and no source PDF was detected in `data/pdf/`. "
+                "Please ensure the source PDF is present in the repository and trigger the `/api/ingest` endpoint."
+            )
+        )
+
+    # 3. Process question through LangGraph RAG Agent
     try:
         initial_state = {
             "question": question,

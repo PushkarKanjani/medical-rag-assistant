@@ -168,9 +168,9 @@
 
       <!-- Live Status & Actions -->
       <div class="flex items-center gap-3">
-        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50/80 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shadow-card-subtle">
+        <div id="statusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50/80 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shadow-card-subtle transition-all duration-300">
           <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm animate-pulse-slow"></span>
-          <span>Dense + BM25 Hybrid Active</span>
+          <span>Checking Status...</span>
         </div>
 
         <button id="clearChatBtn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100/80 hover:bg-slate-200/80 border border-slate-200 transition-all duration-150 active:scale-95">
@@ -199,7 +199,7 @@
           </div>
           <h2 class="text-xl font-bold text-slate-900 tracking-tight mb-2">Evidence-Grounded Medical Intelligence</h2>
           <p class="text-sm text-slate-600 leading-relaxed mb-6">
-            Ask complex clinical questions. Every answer is retrieved from 4,000+ pages of peer-reviewed encyclopedia records with verifiable citations.
+            Ask clinical and treatment questions. Every answer is retrieved from 4,000+ pages of peer-reviewed encyclopedia records with verifiable citations.
           </p>
 
           <!-- Prompt Starters -->
@@ -277,6 +277,31 @@
     const sendBtn = document.getElementById('sendBtn');
     const chatForm = document.getElementById('chatForm');
     const clearChatBtn = document.getElementById('clearChatBtn');
+    const statusBadge = document.getElementById('statusBadge');
+
+    // 3. Real-time Live Health Polling
+    async function checkServerHealth() {
+      try {
+        const res = await fetch('/health');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.indexes_ready) {
+            statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50/90 border border-emerald-200 text-emerald-700 text-xs font-semibold shadow-card-subtle";
+            statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm animate-pulse-slow"></span><span>Dense + BM25 Hybrid Active</span>`;
+          } else if (data.is_ingesting) {
+            statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50/90 border border-amber-200 text-amber-700 text-xs font-semibold shadow-card-subtle";
+            statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 shadow-sm animate-pulse"></span><span>Indexing Encyclopedia (~2m)...</span>`;
+          } else {
+            statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold shadow-card-subtle";
+            statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>Ready on Demand</span>`;
+          }
+        }
+      } catch (e) {
+        // Network blip
+      }
+    }
+    setInterval(checkServerHealth, 4000);
+    checkServerHealth();
 
     // Auto-resize textarea
     queryInput.addEventListener('input', function () {
@@ -318,7 +343,7 @@
       handleChatSubmit();
     }
 
-    // 3. Format Assistant Output & Smart Citations
+    // 4. Format Assistant Output & Smart Citations
     function formatAssistantMarkdown(rawText) {
       if (!rawText) return '';
 
@@ -373,7 +398,7 @@
       return formatted.join('');
     }
 
-    // 4. Message DOM Rendering
+    // 5. Message DOM Rendering
     function appendUserMessage(text) {
       if (welcomeHero && welcomeHero.style.display !== 'none') {
         welcomeHero.style.display = 'none';
@@ -438,7 +463,7 @@
       });
     }
 
-    // 5. Submit Query Execution
+    // 6. Submit Query Execution
     async function handleChatSubmit() {
       const question = queryInput.value.trim();
       if (!question || isSubmitting) return;
@@ -482,7 +507,7 @@
 
       } catch (err) {
         removeThinkingIndicator();
-        appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ Connection failure: Could not reach API backend. Please ensure the server is active at <code>http://localhost:8000</code>.</p>`);
+        appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ Connection failure: Could not reach API backend. Please check your network connection.</p>`);
       } finally {
         isSubmitting = false;
         queryInput.focus();
