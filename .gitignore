@@ -13,42 +13,32 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+ENV/
 
 # Test and coverage outputs
 .coverage
 .coverage.*
 htmlcov/
 
-# Notebook and editor caches
+# Notebooks and editor caches
+*.ipynb
 .ipynb_checkpoints/
 .vscode/
 .continue/
+.idea/
 
-# Local env and logs
+# Environment variables & secrets
 .env
 .env.*
+.env.local
+
+# Logs
 *.log
 
-# Local runtime/storage caches
+# Local data & indexes (large binaries / vector stores)
+data/indexes/
+data/extracted/
+data/pdf/*.pdf
 qdrant_db/
-
-# Frontend build cache (if root git is used)
-frontend/.next/
-frontend/out/
-frontend/node_modules/
-
-# Local Indexes and Env
-data/indexes/
-data/extracted/
-.venv/
-__pycache__/
-*.pyc
-.env
-
-# Local Indexes and Env
-data/indexes/
-data/extracted/
-.venv/
-__pycache__/
-*.pyc
-.env
+qdrant_db_text/
+*.pkl
