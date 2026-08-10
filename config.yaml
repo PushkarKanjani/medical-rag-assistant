@@ -1,0 +1,20 @@
+# Embeddings (Runs locally on CPU - very fast)
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+
+# Storage
+chroma_path: data/indexes/chroma
+collection_name: gale_medicine
+bm25_path: data/indexes/bm25.pkl
+
+# LLM Generation (Cloud API due to CPU constraints)
+generator: groq
+groq_model: llama-3.3-70b-versatile
+
+# Retrieval Settings
+top_dense: 24
+top_bm25: 24
+final_context_chunks: 6
+
+# Chunking Settings
+chunk_target_chars: 2000
+chunk_overlap_chars: 300
