@@ -49,6 +49,14 @@ _chunk_records = None
 _rag_app = None
 
 
+def reset_resource_cache():
+    """Resets the cached Chroma and BM25 objects so newly ingested indexes are loaded."""
+    global _chroma_collection, _bm25, _chunk_records
+    _chroma_collection = None
+    _bm25 = None
+    _chunk_records = None
+
+
 def get_groq_client() -> Groq | None:
     """Returns or lazily creates the Groq API client from environment variables."""
     global _groq_client

@@ -24,13 +24,11 @@ ENV/
 .continue/
 .idea/
 
-# Large local vectors, models & index storage
+# Large local vectors & generated indexes (excluded to keep repo fast)
 data/indexes/
 data/indexes/chroma/
 data/indexes/bm25_index.pkl
 data/extracted/
-data/pdf/*.pdf
-*.pkl
 qdrant_db/
 qdrant_db_text/
 
