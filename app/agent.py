@@ -269,22 +269,48 @@ def retrieve_node(state: AgentState) -> AgentState:
 
 
 # ---- Node 3: Grounded Answer Generation ----
-SYSTEM_PROMPT = """You are a careful, evidence-grounded medical information assistant.
+MEDICAL_DISCLAIMER = (
+    "Note: This information is for educational reference only. "
+    "Consult a physician for medical advice."
+)
 
-STRICT RULES:
-1. Answer ONLY using the provided evidence. Never use outside knowledge to fill gaps.
-2. Carefully distinguish the MAIN condition being asked about from OTHER related conditions
-   mentioned in the evidence. Do NOT attribute symptoms or facts belonging to a different
-   condition (e.g. Kidney Failure) to the queried condition (e.g. Hypertension).
-3. If the evidence contains phrases like "silent killer" or states the condition has
-   "no symptoms" / "often asymptomatic", state this prominently and early in your answer.
-4. Cite every factual claim with the source chunk id in square brackets, e.g. [gale-p42-c3].
-   Do not make claims without a citation.
-5. If the evidence does not contain enough information to answer, say so explicitly rather
-   than guessing.
+SYSTEM_PROMPT = """You are a strict, evidence-based Medical RAG Assistant grounded ONLY in the provided Gale Encyclopedia context.
 
-Respond in a natural, conversational tone — you're a knowledgeable, careful assistant,
-not a robotic search engine."""
+CRITICAL RULES:
+1. Do not overclaim. Preserve the nuance of the evidence, including when a condition has multiple mechanisms or non-allergic causes. For asthma, never describe it as essentially or primarily allergic; say only that the supplied excerpt describes an allergic mechanism or trigger.
+2. Do not invent facts, page numbers, or chunk IDs.
+3. Cite sources only with the EXACT chunk ID shown in the evidence, such as [The_Gale_Encyclopedia_of_Medicine_3rd_Edition-p153-c125]. Never use shorthand citations.
+4. End every clinical answer with this exact sentence: "Note: This information is for educational reference only. Consult a physician for medical advice."
+5. Do not cut off tables or lists. If the answer would be long, summarize it concisely instead.
+6. If the evidence does not contain the answer, reply: "I cannot answer this based on the available medical encyclopedia data."
+
+Answer only from the supplied evidence. Do not diagnose, prescribe, or provide personalized medical advice."""
+
+
+def enforce_citation_grounding(response_text: str, retrieved_chunk_ids: list[str]) -> str:
+    """Remove citation-shaped references that were not retrieved for this answer."""
+    if not retrieved_chunk_ids:
+        return response_text.strip()
+
+    valid_ids = set(retrieved_chunk_ids)
+    citation_pattern = r"[\[【]([^\]】]+)[\]】]"
+
+    def replace_citation(match: re.Match[str]) -> str:
+        citation = match.group(1).strip()
+        if re.search(r"p\d+-c\d+", citation) and citation not in valid_ids:
+            return ""
+        return match.group(0)
+
+    grounded = re.sub(citation_pattern, replace_citation, response_text)
+    return re.sub(r"[ \t]{2,}", " ", grounded).strip()
+
+
+def add_medical_disclaimer(response_text: str) -> str:
+    """Ensure every generated clinical answer ends with the standard disclaimer."""
+    answer = response_text.strip()
+    if not answer.endswith(MEDICAL_DISCLAIMER):
+        answer = f"{answer}\n\n{MEDICAL_DISCLAIMER}"
+    return answer
 
 
 def generate_node(state: AgentState) -> AgentState:
@@ -293,7 +319,9 @@ def generate_node(state: AgentState) -> AgentState:
     evidence = state["evidence"]
 
     if not evidence:
-        state["answer"] = "I could not find any relevant information in the medical encyclopedia for your question."
+        state["answer"] = add_medical_disclaimer(
+            "I cannot answer this based on the available medical encyclopedia data."
+        )
         return state
 
     # Truncate evidence to prevent prompt overflow
@@ -320,12 +348,14 @@ def generate_node(state: AgentState) -> AgentState:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=4096,
         )
         content = resp.choices[0].message.content
         if not content or not content.strip():
             raise RuntimeError("Groq returned an empty answer")
-        state["answer"] = content.strip()
+        retrieved_chunk_ids = [item["id"] for item in evidence]
+        grounded_content = enforce_citation_grounding(content, retrieved_chunk_ids)
+        state["answer"] = add_medical_disclaimer(grounded_content)
     except Exception as e:
         error_msg = f"Sorry, I hit an error generating the answer: {e}"
         print(f"\n❌ GENERATE ERROR: {error_msg}")
