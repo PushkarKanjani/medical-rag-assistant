@@ -3,7 +3,7 @@ app/agent.py
 ────────────
 Medical RAG Agent with Query Rewriting, Hybrid Dense+BM25 Retrieval,
 Reciprocal Rank Fusion (RRF), Symptom-Disease Penalty, Evidence Grounding,
-and LangGraph Orchestration using Groq (llama-3.1-8b-instant).
+and LangGraph Orchestration using Groq.
 
 Ported from Cell 3 & Cell 4 of Medical_RAG_Core_Engine.ipynb.
 Includes lazy initialization for fast server startup on ephemeral/cloud hosts.
@@ -25,7 +25,6 @@ import chromadb
 from dotenv import load_dotenv
 from groq import Groq
 from langgraph.graph import END, StateGraph
-import torch
 
 # ---- Load Environment & Paths ----
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,8 +35,7 @@ CHROMA_PATH = INDEXES_DIR / "chroma"
 BM25_PATH = INDEXES_DIR / "bm25_index.pkl"
 
 COLLECTION_NAME = "medical_encyclopedia"
-EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 # ---- Lazy Client & Resource Cache ----
@@ -84,8 +82,8 @@ def get_resources():
         _chroma_collection = chroma_client.get_collection(COLLECTION_NAME)
 
     if _embed_model is None:
-        from sentence_transformers import SentenceTransformer
-        _embed_model = SentenceTransformer(EMBED_MODEL_NAME, device=DEVICE)
+        from fastembed import TextEmbedding
+        _embed_model = TextEmbedding(model_name=EMBED_MODEL_NAME)
 
     if _bm25 is None or _chunk_records is None:
         if not BM25_PATH.exists():
@@ -203,7 +201,7 @@ def retrieve_node(state: AgentState) -> AgentState:
     query = state["search_query"]
 
     # --- Dense Retrieval (Chroma) ---
-    query_embedding = embed_model.encode([query]).tolist()
+    query_embedding = [next(embed_model.embed([query])).tolist()]
     dense_results = collection.query(
         query_embeddings=query_embedding,
         n_results=TOP_N_PER_METHOD,

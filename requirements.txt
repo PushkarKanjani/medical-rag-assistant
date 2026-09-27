@@ -3,12 +3,11 @@ uvicorn[standard]
 gunicorn
 pymupdf
 chromadb
-sentence-transformers
+fastembed
 rank-bm25
 groq
 langgraph
 python-dotenv
-torch
 slowapi
 pytest
 pytest-asyncio

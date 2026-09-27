@@ -28,9 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import pymupdf  # PyMuPDF
-import torch
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
 import chromadb
 
 # ---- Paths & Config ----
@@ -43,8 +41,8 @@ BM25_PATH = INDEXES_DIR / "bm25_index.pkl"
 COLLECTION_NAME = "medical_encyclopedia"
 TARGET_CHUNK_SIZE = 1500
 CHUNK_OVERLAP = 200
-EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+DEVICE = "cpu"
 
 # ---- Cleaning Patterns ----
 HEADER_RE = re.compile(r'(?:[A-Z]\s+){5,}[A-Z]', re.IGNORECASE)  # spaced-out header like "G A L E ..."
@@ -186,18 +184,15 @@ def run_ingestion(pdf_path: Path | str | None = None) -> None:
         return
 
     # 3. Dense Embeddings
+    from fastembed import TextEmbedding
+
     print(f"\n🧠 Loading embedding model '{EMBED_MODEL_NAME}' on {DEVICE}...")
-    embed_model = SentenceTransformer(EMBED_MODEL_NAME, device=DEVICE)
+    embed_model = TextEmbedding(model_name=EMBED_MODEL_NAME)
 
     texts = [c["text"] for c in chunk_records]
     print(f"⚡ Encoding {total_chunks} chunks...")
     batch_size = 128 if DEVICE == "cuda" else 32
-    embeddings = embed_model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        convert_to_numpy=True,
-    )
+    embeddings = list(embed_model.embed(texts))
 
     # 4. ChromaDB (Local Persistent Storage)
     print(f"\n💾 Initializing ChromaDB PersistentClient at {CHROMA_PATH}...")
@@ -221,7 +216,7 @@ def run_ingestion(pdf_path: Path | str | None = None) -> None:
         batch = chunk_records[i:i + batch_upsert]
         collection.add(
             ids=[c["id"] for c in batch],
-            embeddings=embeddings[i:i + batch_upsert].tolist(),
+            embeddings=[embedding.tolist() for embedding in embeddings[i:i + batch_upsert]],
             documents=[c["text"] for c in batch],
             metadatas=[{"page": c["page"]} for c in batch],
         )

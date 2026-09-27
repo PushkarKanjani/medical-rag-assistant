@@ -9,7 +9,7 @@ Powered by **FastAPI**, **LangGraph**, **ChromaDB**, **BM25**, and **Groq (`llam
 ## 🌟 Key Features
 
 - **Evidence-Grounded Generation**: Strictly answers based on encyclopedia sources with inline chunk citations (e.g. `[gale-p1933-c1899]`). Zero outside hallucinations.
-- **Hybrid Retrieval (Dense + Sparse)**: Combines **ChromaDB** vector similarity (`sentence-transformers/all-MiniLM-L6-v2`) with **BM25Okapi** lexical search using **Reciprocal Rank Fusion (RRF, k=60)**.
+- **Hybrid Retrieval (Dense + Sparse)**: Combines **ChromaDB** vector similarity (`BAAI/bge-small-en-v1.5` via FastEmbed) with **BM25Okapi** lexical search using **Reciprocal Rank Fusion (RRF, k=60)**.
 - **Smart Symptom-Disease Disambiguation**: Applies heuristic penalties to prevent attributing symptoms of unrelated conditions to the queried disease.
 - **Query Rewriter Agent**: Uses conversation history (last 8 turns) to resolve pronouns and context into standalone search queries.
 - **Medical-Grade Glassmorphic UI**: Single Page App with Tailwind CSS, **Lenis Smooth Scroll**, interactive citation badges, and prompt starters.
