@@ -69,6 +69,30 @@ def get_groq_client() -> Groq | None:
     return _groq_client
 
 
+def _is_ambiguous_follow_up(question: str) -> bool:
+    """Identify short follow-ups whose subject depends on prior conversation."""
+    normalized = question.lower().strip()
+    markers = (
+        " it",
+        " this",
+        " that",
+        "what medicine",
+        "what treatment",
+        "what about",
+        "causes of",
+        "how to treat",
+    )
+    return len(normalized.split()) <= 12 or any(marker in f" {normalized}" for marker in markers)
+
+
+def _last_user_question(history: List[Dict[str, str]]) -> str | None:
+    """Return the latest user turn to anchor an elliptical follow-up."""
+    for turn in reversed(history):
+        if turn.get("role") == "user" and turn.get("content", "").strip():
+            return turn["content"].strip()
+    return None
+
+
 def get_resources():
     """Lazily initializes and returns ChromaDB collection, embedding model, BM25 index, and chunk records."""
     global _chroma_collection, _embed_model, _bm25, _chunk_records
@@ -115,6 +139,12 @@ def rewrite_node(state: AgentState) -> AgentState:
 
     if not history:
         state["search_query"] = question
+        return state
+
+    previous_question = _last_user_question(history)
+    if previous_question and _is_ambiguous_follow_up(question):
+        state["search_query"] = f"{previous_question}. Follow-up: {question}"
+        print(f"[rewrite_node] anchored follow-up to '{previous_question}'")
         return state
 
     history_str = "\n".join(f"{h['role']}: {h['content']}" for h in history)
@@ -281,8 +311,10 @@ CRITICAL RULES:
 2. Do not invent facts, page numbers, or chunk IDs.
 3. Cite sources only with the EXACT chunk ID shown in the evidence, such as [The_Gale_Encyclopedia_of_Medicine_3rd_Edition-p153-c125]. Never use shorthand citations.
 4. End every clinical answer with this exact sentence: "Note: This information is for educational reference only. Consult a physician for medical advice."
-5. Do not cut off tables or lists. If the answer would be long, summarize it concisely instead.
-6. If the evidence does not contain the answer, reply: "I cannot answer this based on the available medical encyclopedia data."
+5. For serious, sudden, or unusually severe symptoms, put urgent warning signs and the need for prompt medical evaluation before routine self-care or medication discussion.
+6. Do not present herbs, supplements, acupressure, or alternative therapies as established treatment; label them as limited/alternative evidence if they appear in the context.
+7. Do not cut off tables or lists. If the answer would be long, summarize it concisely instead.
+8. If the evidence does not contain the answer, reply: "I cannot answer this based on the available medical encyclopedia data."
 
 Answer only from the supplied evidence. Do not diagnose, prescribe, or provide personalized medical advice."""
 
