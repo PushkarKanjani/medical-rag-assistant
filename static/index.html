@@ -303,7 +303,7 @@
         // Network blip
       }
     }
-    setInterval(checkServerHealth, 4000);
+    setInterval(checkServerHealth, 30000);
     checkServerHealth();
 
     // Auto-resize textarea
@@ -484,14 +484,18 @@
       showThinkingIndicator();
 
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             question: question,
             history: chatHistory.slice(-8),
-          })
+          }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         removeThinkingIndicator();
 
@@ -514,7 +518,10 @@
 
       } catch (err) {
         removeThinkingIndicator();
-        appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ Connection failure: Could not reach API backend. Please check your network connection.</p>`);
+        const message = err.name === 'AbortError'
+          ? 'The server took too long to respond. It may be waking up or restarting; please try again shortly.'
+          : 'Could not reach the API backend. Please try again shortly.';
+        appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ ${message}</p>`);
       } finally {
         isSubmitting = false;
         queryInput.focus();
