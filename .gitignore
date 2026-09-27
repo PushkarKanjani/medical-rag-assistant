@@ -28,10 +28,11 @@ data/processed/
 .continue/
 .idea/
 
-# Large local vectors & generated indexes (excluded to keep repo fast)
-data/indexes/
-data/indexes/chroma/
-data/indexes/bm25_index.pkl
+# Prebuilt retrieval indexes are deployable artifacts; source PDFs remain local.
+data/indexes/*
+!data/indexes/bm25_index.pkl
+!data/indexes/chroma/
+!data/indexes/chroma/**
 data/extracted/
 qdrant_db/
 qdrant_db_text/
