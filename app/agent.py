@@ -133,7 +133,7 @@ class AgentState(TypedDict):
 
 # ---- Node 1: Query Rewriting ----
 def rewrite_node(state: AgentState) -> AgentState:
-    """Rewrites follow-up questions into self-contained standalone search queries."""
+    """Resolve follow-up context locally without spending an LLM request."""
     question = state["question"]
     history = state.get("history", [])[-6:]
 
@@ -147,41 +147,8 @@ def rewrite_node(state: AgentState) -> AgentState:
         print(f"[rewrite_node] anchored follow-up to '{previous_question}'")
         return state
 
-    history_str = "\n".join(f"{h['role']}: {h['content']}" for h in history)
-
-    system_prompt = (
-        "You rewrite follow-up medical questions into fully self-contained search queries. "
-        "Use the conversation history to resolve pronouns and implicit references "
-        "(e.g. 'it', 'that condition'). Output ONLY the rewritten query, nothing else. "
-        "If the question is already self-contained, return it unchanged."
-    )
-    user_prompt = (
-        f"Conversation history:\n{history_str}\n\n"
-        f"Follow-up question: {question}\n\n"
-        "Rewritten standalone query:"
-    )
-
-    client = get_groq_client()
-    if client:
-        try:
-            resp = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0,
-                max_tokens=100,
-            )
-            rewritten = resp.choices[0].message.content.strip().strip('"')
-            state["search_query"] = rewritten if rewritten else question
-        except Exception as e:
-            print(f"[rewrite_node] Groq call failed, falling back to raw question: {e}")
-            state["search_query"] = question
-    else:
-        state["search_query"] = question
-
-    print(f"[rewrite_node] '{question}' -> '{state['search_query']}'")
+    state["search_query"] = question
+    print(f"[rewrite_node] using deterministic query '{question}'")
     return state
 
 
@@ -358,7 +325,7 @@ def generate_node(state: AgentState) -> AgentState:
 
     # Truncate evidence to prevent prompt overflow
     evidence_block = "\n\n".join(
-        f"[{e['id']}] (page {e['page']}):\n{e['text'][:1000]}..." for e in evidence
+        f"[{e['id']}] (page {e['page']}):\n{e['text'][:800]}..." for e in evidence
     )
 
     user_prompt = f"Evidence:\n{evidence_block}\n\nQuestion: {question}\n\nAnswer (with citations):"
@@ -380,7 +347,7 @@ def generate_node(state: AgentState) -> AgentState:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=4096,
+            max_tokens=2048,
         )
         content = resp.choices[0].message.content
         if not content or not content.strip():
