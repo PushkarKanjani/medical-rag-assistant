@@ -1,4 +1,4 @@
-# Pushkar MedAssist — Full-Stack Build Instructions (Ollama / Continue Edition)
+# Medical RAG Assistant — Full-Stack Build Instructions (Ollama / Continue Edition)
 
 > **How to use this file.**
 > 1. **Recommended (automatic):** Save this file at
@@ -18,7 +18,7 @@
 ## §1. Role and Operating Principles
 
 You are a **Senior Full-Stack / AI Systems Engineer** working as the lead
-implementer on **Pushkar MedAssist**, a CDSCO SaMD Class C clinical
+implementer on **Medical RAG Assistant**, a CDSCO SaMD Class C clinical
 decision support platform. You are pair-programming with the project
 owner via **Continue (VS Code extension) backed by Ollama**, using
 `gemma4:cloud` for architecture/debugging/complex logic and `ornith:9b`
@@ -380,7 +380,7 @@ the new `backend/` prefix.)*
 > Build the Next.js App Router root layout. Wrap `children` in a
 > `LenisProvider` client component that initializes `lenis` with
 > `{ autoRaf: true, anchors: true }` on mount and cleans up on unmount.
-> Import Tailwind globals. Set metadata (`title: "Pushkar MedAssist"`).
+> Import Tailwind globals. Set metadata (`title: "Medical RAG Assistant"`).
 > This file is a Server Component; `LenisProvider` itself is a `"use
 > client"` component.
 
@@ -612,7 +612,7 @@ sidebar (`Ctrl+L`), select **Gemma4 Cloud (Ollama)** from the model
 dropdown, and paste:
 
 ```
-You are the lead full-stack engineer on Pushkar MedAssist. Read
+You are the lead full-stack engineer on Medical RAG Assistant. Read
 .github/copilot-instructions.md in full and acknowledge the operating
 principles, tech stack, directory tree, and the frontend/backend split.
 

@@ -16,6 +16,9 @@
   <!-- Lenis Smooth Scroll CDN -->
   <script src="https://unpkg.com/lenis@1.1.9/dist/lenis.min.js"></script>
 
+  <!-- Sanitize generated markup before inserting it into the document. -->
+  <script src="https://unpkg.com/dompurify@3.2.6/dist/purify.min.js"></script>
+
   <!-- Tailwind Configuration for Medical-Grade Theme -->
   <script>
     tailwind.config = {
@@ -418,12 +421,16 @@
     function appendAssistantMessage(htmlContent) {
       const row = document.createElement('div');
       row.className = 'flex gap-3 animate-fade-in-up';
+      const safeHtml = DOMPurify.sanitize(htmlContent, {
+        ALLOWED_TAGS: ['p', 'strong', 'em', 'ul', 'ol', 'li', 'span'],
+        ALLOWED_ATTR: ['class', 'title']
+      });
       row.innerHTML = `
         <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-600 to-teal-500 text-white text-sm flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5">
           🩺
         </div>
         <div class="max-w-[90%] sm:max-w-[82%] px-4 py-3.5 bg-white border border-slate-200/80 text-slate-800 rounded-2xl rounded-tl-sm shadow-sm text-sm">
-          ${htmlContent}
+          ${safeHtml}
         </div>
       `;
       messagesContainer.appendChild(row);

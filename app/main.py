@@ -23,10 +23,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.agent import BASE_DIR, CHROMA_PATH, BM25_PATH, get_rag_app, reset_resource_cache
 
@@ -97,19 +100,36 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Enable CORS for all origins
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:8000",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+class HistoryTurn(BaseModel):
+    role: str = Field(..., min_length=1, max_length=32)
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
 class ChatRequest(BaseModel):
-    question: str = Field(..., description="The user's medical query")
-    history: List[Dict[str, str]] = Field(default_factory=list, description="Recent conversation turns (role & content)")
+    question: str = Field(..., min_length=1, max_length=1000, description="The user's medical query")
+    history: List[HistoryTurn] = Field(default_factory=list, max_length=10, description="Recent conversation turns")
 
 
 class ChatResponse(BaseModel):
@@ -137,7 +157,8 @@ async def health_check():
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest):
+@limiter.limit("5/minute")
+async def chat_endpoint(request: Request, req: ChatRequest):
     """
     Main chat endpoint:
     Non-blocking endpoint that provides immediate status feedback during startup ingestion
@@ -179,7 +200,7 @@ async def chat_endpoint(req: ChatRequest):
     try:
         initial_state = {
             "question": question,
-            "history": req.history[-8:] if req.history else [],
+            "history": [turn.model_dump() for turn in req.history[-8:]],
             "search_query": "",
             "evidence": [],
             "answer": "",

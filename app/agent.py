@@ -38,7 +38,7 @@ BM25_PATH = INDEXES_DIR / "bm25_index.pkl"
 COLLECTION_NAME = "medical_encyclopedia"
 EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 # ---- Lazy Client & Resource Cache ----
 _groq_client: Groq | None = None
@@ -322,9 +322,12 @@ def generate_node(state: AgentState) -> AgentState:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=1024,
+            max_tokens=2048,
         )
-        state["answer"] = resp.choices[0].message.content.strip()
+        content = resp.choices[0].message.content
+        if not content or not content.strip():
+            raise RuntimeError("Groq returned an empty answer")
+        state["answer"] = content.strip()
     except Exception as e:
         error_msg = f"Sorry, I hit an error generating the answer: {e}"
         print(f"\n❌ GENERATE ERROR: {error_msg}")

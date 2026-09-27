@@ -17,6 +17,10 @@ ENV/
 .env.*
 .env.local
 
+# Local source documents and generated ingestion artifacts
+data/pdf/
+data/processed/
+
 # Notebooks & IDE configurations
 *.ipynb
 .ipynb_checkpoints/

@@ -9,3 +9,6 @@ groq
 langgraph
 python-dotenv
 torch
+slowapi
+pytest
+pytest-asyncio
