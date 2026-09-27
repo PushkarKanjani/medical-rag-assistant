@@ -93,6 +93,36 @@ def _last_user_question(history: List[Dict[str, str]]) -> str | None:
     return None
 
 
+def _extract_subject(question: str) -> str:
+    """Extract the condition from common treatment/symptom question forms."""
+    subject = question.strip().rstrip("?.!")
+    patterns = (
+        r"^(?:how\s+(?:do|can)\s+I|how\s+to)\s+(?:treat|manage|cure)\s+(?:a|an|the)?\s*(.+)$",
+        r"^(?:what\s+are|what\s+is)\s+(?:the\s+)?(?:symptoms|causes|treatment|remedies)\s+(?:of|for)\s+(.+)$",
+        r"^(?:what\s+about)\s+(.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, subject, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return subject
+
+
+def _resolve_follow_up(previous_question: str, follow_up: str) -> str:
+    """Turn an elliptical follow-up into a retrieval query with an explicit topic."""
+    subject = _extract_subject(previous_question)
+    normalized = follow_up.lower()
+    if "cause" in normalized:
+        return f"causes of {subject}"
+    if "medicine" in normalized or "drug" in normalized:
+        return f"medication information for {subject}"
+    if "doctor" in normalized or "medical help" in normalized:
+        return f"warning signs and when to seek medical care for {subject}"
+    if "symptom" in normalized:
+        return f"symptoms of {subject}"
+    return f"{subject}. Follow-up: {follow_up.strip()}"
+
+
 def get_resources():
     """Lazily initializes and returns ChromaDB collection, embedding model, BM25 index, and chunk records."""
     global _chroma_collection, _embed_model, _bm25, _chunk_records
@@ -133,7 +163,7 @@ class AgentState(TypedDict):
 
 # ---- Node 1: Query Rewriting ----
 def rewrite_node(state: AgentState) -> AgentState:
-    """Resolve follow-up context locally without spending an LLM request."""
+    """Rewrites follow-up questions into self-contained standalone search queries."""
     question = state["question"]
     history = state.get("history", [])[-6:]
 
@@ -143,12 +173,45 @@ def rewrite_node(state: AgentState) -> AgentState:
 
     previous_question = _last_user_question(history)
     if previous_question and _is_ambiguous_follow_up(question):
-        state["search_query"] = f"{previous_question}. Follow-up: {question}"
+        state["search_query"] = _resolve_follow_up(previous_question, question)
         print(f"[rewrite_node] anchored follow-up to '{previous_question}'")
         return state
 
-    state["search_query"] = question
-    print(f"[rewrite_node] using deterministic query '{question}'")
+    history_str = "\n".join(f"{h['role']}: {h['content']}" for h in history)
+
+    system_prompt = (
+        "You rewrite follow-up medical questions into fully self-contained search queries. "
+        "Use the conversation history to resolve pronouns and implicit references "
+        "(e.g. 'it', 'that condition'). Output ONLY the rewritten query, nothing else. "
+        "If the question is already self-contained, return it unchanged."
+    )
+    user_prompt = (
+        f"Conversation history:\n{history_str}\n\n"
+        f"Follow-up question: {question}\n\n"
+        "Rewritten standalone query:"
+    )
+
+    client = get_groq_client()
+    if client:
+        try:
+            resp = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+                max_tokens=100,
+            )
+            rewritten = resp.choices[0].message.content.strip().strip('"')
+            state["search_query"] = rewritten if rewritten else question
+        except Exception as e:
+            print(f"[rewrite_node] Groq call failed, falling back to raw question: {e}")
+            state["search_query"] = question
+    else:
+        state["search_query"] = question
+
+    print(f"[rewrite_node] '{question}' -> '{state['search_query']}'")
     return state
 
 
@@ -325,10 +388,15 @@ def generate_node(state: AgentState) -> AgentState:
 
     # Truncate evidence to prevent prompt overflow
     evidence_block = "\n\n".join(
-        f"[{e['id']}] (page {e['page']}):\n{e['text'][:800]}..." for e in evidence
+        f"[{e['id']}] (page {e['page']}):\n{e['text'][:1000]}..." for e in evidence
     )
 
-    user_prompt = f"Evidence:\n{evidence_block}\n\nQuestion: {question}\n\nAnswer (with citations):"
+    search_query = state.get("search_query", question)
+    user_prompt = (
+        f"Evidence:\n{evidence_block}\n\n"
+        f"Retrieval topic: {search_query}\n"
+        f"Question: {question}\n\nAnswer (with citations):"
+    )
     full_prompt_for_size = SYSTEM_PROMPT + user_prompt
     print(f"[generate_node] Prompt size: {len(full_prompt_for_size):,} chars (~{len(full_prompt_for_size) // 4:,} tokens est.)")
 
@@ -347,7 +415,7 @@ def generate_node(state: AgentState) -> AgentState:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=4096,
         )
         content = resp.choices[0].message.content
         if not content or not content.strip():

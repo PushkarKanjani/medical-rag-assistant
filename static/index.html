@@ -207,8 +207,8 @@
 
           <!-- Prompt Starters -->
           <div class="space-y-2.5 text-left">
-            <button onclick="useQuickPrompt('What are the symptoms of hypertension?')" class="w-full group p-3.5 rounded-xl bg-white/90 hover:bg-white border border-slate-200/80 hover:border-brand-500/50 shadow-card-subtle hover:shadow-glass transition-all duration-200 flex items-center justify-between text-left text-sm text-slate-700 hover:text-brand-600">
-              <span class="font-medium">What are the symptoms of hypertension?</span>
+            <button onclick="useQuickPrompt('What are the symptoms and causes of appendicitis?')" class="w-full group p-3.5 rounded-xl bg-white/90 hover:bg-white border border-slate-200/80 hover:border-brand-500/50 shadow-card-subtle hover:shadow-glass transition-all duration-200 flex items-center justify-between text-left text-sm text-slate-700 hover:text-brand-600">
+              <span class="font-medium">What are the symptoms and causes of appendicitis?</span>
               <span class="text-slate-400 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all text-xs font-semibold">Ask →</span>
             </button>
 
@@ -501,8 +501,11 @@
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          const errMsg = errData.detail || `Server status code ${response.status}`;
-          appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ Error: ${errMsg}</p>`);
+          let errMsg = errData.detail || `Server status code ${response.status}`;
+          if (response.status === 429) {
+            errMsg = "Rate limit reached (5 requests/minute). Please wait 10-15 seconds before asking your next question.";
+          }
+          appendAssistantMessage(`<p class="text-rose-600 font-medium">⚠️ ${errMsg}</p>`);
           return;
         }
 
